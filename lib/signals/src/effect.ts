@@ -1,5 +1,5 @@
 import { STATE_CLEAN, STATE_DISPOSED } from './constants';
-import { Computation, type MemoOptions } from './core';
+import { Computation, UNCHANGED, compute, type MemoOptions } from './core';
 import { type Owner } from './owner';
 
 let scheduledEffects = false,
@@ -46,7 +46,7 @@ function runTop(node: Computation): void {
 }
 
 function runEffects() {
-  if (!effects.length) {
+  if (!effects.length && !renderEffects.length) {
     scheduledEffects = false;
     return;
   }
@@ -56,18 +56,30 @@ function runEffects() {
   try {
     for (let i = 0; i < renderEffects.length; i++) {
       if (renderEffects[i]._state !== STATE_CLEAN) {
-        renderEffects[i]._updateIfNecessary();
-      }
-    }
-    for (let i = 0; i < renderEffects.length; i++) {
-      if (renderEffects[i].modified) {
-        renderEffects[i].effect(renderEffects[i]._value);
-        renderEffects[i].modified = false;
+        runTop(renderEffects[i]);
       }
     }
     for (let i = 0; i < effects.length; i++) {
       if (effects[i]._state !== STATE_CLEAN) {
         runTop(effects[i]);
+      }
+    }
+    for (let i = 0; i < renderEffects.length; i++) {
+      if (
+        renderEffects[i].modified &&
+        renderEffects[i]._state !== STATE_DISPOSED
+      ) {
+        compute(renderEffects[i], renderEffects[i].effect, renderEffects[i]);
+        renderEffects[i].modified = false;
+      }
+    }
+    for (let i = 0; i < effects.length; i++) {
+      if (
+        effects[i].modified &&
+        effects[i]._state !== STATE_DISPOSED
+      ) {
+        compute(effects[i], effects[i].effect, effects[i]);
+        effects[i].modified = false;
       }
     }
   } finally {
@@ -83,9 +95,40 @@ function runEffects() {
  * automatically added to the queue of effects to re-execute, which will cause them to fetch their
  * sources and recompute
  */
-export class Effect<T = any> extends Computation<T> {
-  constructor(initialValue: T, compute: () => T, options?: MemoOptions<T>) {
+class BaseEffect<T = any> extends Computation<T> {
+  effect: (val: T) => void;
+  modified: boolean = false;
+  constructor(
+    initialValue: T,
+    compute: () => T,
+    effect: (val: T) => void,
+    options?: MemoOptions<T>,
+  ) {
     super(initialValue, compute, options);
+    this.effect = effect;
+  }
+
+  override write(value: T): T {
+    if (value === UNCHANGED) return this._value as T;
+    this._value = value;
+    this.modified = true;
+
+    return value;
+  }
+
+  override _setError(error: unknown): void {
+    this.handleError(error);
+  }
+}
+
+export class Effect<T = any> extends BaseEffect<T> {
+  constructor(
+    initialValue: T,
+    compute: () => T,
+    effect: (val: T) => void,
+    options?: MemoOptions<T>,
+  ) {
+    super(initialValue, compute, effect, options);
     effects.push(this);
     flushEffects();
   }
@@ -100,31 +143,18 @@ export class Effect<T = any> extends Computation<T> {
 
     this._state = state;
   }
-
-  override write(value: T): T {
-    this._value = value;
-
-    return value;
-  }
-
-  override _setError(error: unknown): void {
-    this.handleError(error);
-  }
 }
 
-export class RenderEffect<T = any> extends Computation<T> {
-  effect: (val: T) => void;
-  modified: boolean = false;
+export class RenderEffect<T = any> extends BaseEffect<T> {
   constructor(
     initialValue: T,
     compute: () => T,
     effect: (val: T) => void,
     options?: MemoOptions<T>,
   ) {
-    super(initialValue, compute, options);
-
-    this.effect = effect;
+    super(initialValue, compute, effect, options);
     this._updateIfNecessary();
+    renderEffects.push(this);
   }
 
   override _notify(state: number): void {
@@ -136,16 +166,5 @@ export class RenderEffect<T = any> extends Computation<T> {
     }
 
     this._state = state;
-  }
-
-  override write(value: T): T {
-    this._value = value;
-    this.modified = true;
-
-    return value;
-  }
-
-  override _setError(error: unknown): void {
-    this.handleError(error);
   }
 }

@@ -1,8 +1,8 @@
-import type { MemoOptions, SignalOptions } from "./core";
-import { Computation, compute, UNCHANGED } from "./core";
-import { Effect, RenderEffect } from "./effect";
-import { ERROR_BIT, LOADING_BIT } from "./flags";
-import { Owner } from "./owner";
+import type { MemoOptions, SignalOptions } from './core';
+import { Computation, compute, UNCHANGED } from './core';
+import { Effect, RenderEffect } from './effect';
+import { ERROR_BIT, LOADING_BIT } from './flags';
+import { Owner } from './owner';
 
 export interface Accessor<T> {
   (): T;
@@ -25,7 +25,7 @@ export type Signal<T> = [read: Accessor<T>, write: Setter<T>];
  */
 export function createSignal<T>(
   initialValue: T,
-  options?: SignalOptions<T>
+  options?: SignalOptions<T>,
 ): Signal<T> {
   const node = new Computation(initialValue, null, options);
   return [node.read.bind(node), node.write.bind(node)];
@@ -34,7 +34,7 @@ export function createSignal<T>(
 export function createAsync<T>(
   fn: () => Promise<T>,
   initial?: T,
-  options?: SignalOptions<T>
+  options?: SignalOptions<T>,
 ): Accessor<T> {
   const lhs = new Computation(undefined, () => {
     const promise = Promise.resolve(fn());
@@ -47,7 +47,7 @@ export function createAsync<T>(
       },
       (error) => {
         signal.write(error as T, ERROR_BIT);
-      }
+      },
     );
 
     return signal;
@@ -65,10 +65,10 @@ export function createAsync<T>(
 export function createMemo<T>(
   compute: () => T,
   initialValue?: T,
-  options?: MemoOptions<T>
+  options?: MemoOptions<T>,
 ): Accessor<T> {
   const node = new Computation(initialValue, compute, options);
-  return node.read.bind(node);
+  return node.wait.bind(node);
 }
 
 /**
@@ -76,14 +76,16 @@ export function createMemo<T>(
  * (i.e., their value changes). The effect is immediately invoked on initialization.
  */
 export function createEffect<T>(
-  effect: () => T,
+  compute: () => T,
+  effect: (v: T) => (() => void) | void,
   initialValue?: T,
-  options?: { name?: string }
+  options?: { name?: string },
 ): void {
   void new Effect(
-    initialValue,
+    initialValue as any,
+    compute,
     effect,
-    true ? { name: options?.name ?? "effect" } : undefined
+    __DEV__ ? { name: options?.name ?? 'effect' } : undefined,
   );
 }
 
@@ -93,15 +95,15 @@ export function createEffect<T>(
  */
 export function createRenderEffect<T>(
   compute: () => T,
-  effect: (v: T) => T,
+  effect: (v: T) => (() => void) | void,
   initialValue?: T,
-  options?: { name?: string }
+  options?: { name?: string },
 ): void {
   void new RenderEffect(
     initialValue as any,
     compute,
     effect,
-    true ? { name: options?.name ?? "effect" } : undefined
+    __DEV__ ? { name: options?.name ?? 'effect' } : undefined,
   );
 }
 
@@ -110,13 +112,13 @@ export function createRenderEffect<T>(
  * computations.
  */
 export function createRoot<T>(
-  init: ((dispose: () => void) => T) | (() => T)
+  init: ((dispose: () => void) => T) | (() => T),
 ): T {
   const owner = new Owner();
   return compute(
     owner,
     !init.length ? (init as () => T) : () => init(() => owner.dispose()),
-    null
+    null,
   );
 }
 
@@ -127,7 +129,7 @@ export function createRoot<T>(
  */
 export function runWithOwner<T>(
   owner: Owner | null,
-  run: () => T
+  run: () => T,
 ): T | undefined {
   try {
     return compute(owner, run, null);
@@ -143,7 +145,7 @@ export function runWithOwner<T>(
  */
 export function catchError<T>(
   fn: () => T,
-  handler: (error: unknown) => void
+  handler: (error: unknown) => void,
 ): void {
   const owner = new Owner();
 
