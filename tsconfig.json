@@ -1,0 +1,10 @@
+{
+  "compilerOptions": {
+    "strict": false,
+    "esModuleInterop": true,
+    "jsx": "react-jsx",
+    "target": "es2017",
+    "module": "ESNext",
+    "moduleResolution": "Bundler"
+  }
+}
