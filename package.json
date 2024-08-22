@@ -12,6 +12,7 @@
   "license": "ISC",
   "description": "",
   "dependencies": {
+    "rxjs": "^7.8.1",
     "vinxi": "^0.3.14"
   }
 }
