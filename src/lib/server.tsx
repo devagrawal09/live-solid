@@ -1,13 +1,17 @@
 import { type Peer } from "crossws";
 import { eventHandler } from "vinxi/http";
 import { SerializedRef, WsMessageUp } from "./shared";
+import { firstValueFrom, isObservable, Observable } from "rxjs";
 
-export type Endpoints = Record<string, (arg: any) => any>;
+export type Callable<T> = (arg: unknown) => T | Promise<T>;
+
+export type Endpoint<T> = Callable<T> | Record<string, Callable<T>>;
+export type Endpoints<T> = Record<string, Endpoint<T>>;
 
 class LiveClient {
   private closures = new Map<string, any>();
 
-  constructor(public peer: Peer, public endpoints: Endpoints) {}
+  constructor(public peer: Peer, public endpoints: Endpoints<any>) {}
 
   pull({
     scope,
@@ -19,11 +23,13 @@ class LiveClient {
     key: string;
     value?: any;
     id: string;
-  }) {}
+  }) {
+    const obs = this.endpoints[key];
+  }
 
   dispose(id: string) {}
 
-  push({
+  async push({
     scope,
     key,
     value,
@@ -34,8 +40,16 @@ class LiveClient {
     value?: any;
     id: string;
   }) {
-    // const result = exposed[key](value);
-    // console.log({ id, key, result });
+    const callable = this.endpoints[key];
+    const callablePromise = isObservable(callable)
+      ? firstValueFrom(callable)
+      : callable(value);
+    const result = await callablePromise;
+
+    this.closures.set(id, result);
+
+    console.log({ id, key, result });
+
     // const payload =
     //   result &&
     //   Object.entries(exposed[key](value)).reduce((res, [name, value]) => {
@@ -80,9 +94,9 @@ export const serverHandler = (e: Endpoints) =>
         const client = mapp.get(peer.id);
 
         if (message.type === "pull") {
-          client?.pull(message);
+          client.pull(message);
         } else if (message.type === "dispose") {
-          client?.dispose(message.id);
+          client.dispose(message.id);
         } else if (message.type === "push") {
           client.push(message);
         }

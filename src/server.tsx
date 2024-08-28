@@ -1,4 +1,4 @@
-import { createEffect, createSignal } from "../lib/signals";
+import { createEffect, createSignal, onCleanup } from "../lib/signals";
 import { serverHandler } from "./lib/server";
 
 function createCounter() {
@@ -9,4 +9,14 @@ function createCounter() {
   return { count, setCount };
 }
 
-export default serverHandler({ createCounter });
+function createTimer() {
+  const [timer, setTimer] = createSignal(10);
+
+  const timeout = setTimeout(() => setTimer(timer() + 1), 1000);
+
+  onCleanup(() => clearTimeout(timeout));
+
+  return timer;
+}
+
+export default serverHandler({ createCounter, createTimer });

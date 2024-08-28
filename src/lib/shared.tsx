@@ -1,10 +1,11 @@
 import { Observable } from "rxjs";
 import {
-  Accessor,
+  type Accessor,
   createRoot,
   createEffect,
   getOwner,
   onCleanup,
+  createSignal,
 } from "../../lib/signals";
 
 export function observable<T>(input: Accessor<T>): Observable<T> {
@@ -18,6 +19,17 @@ export function observable<T>(input: Accessor<T>): Observable<T> {
 
     return () => dispose();
   });
+}
+
+export function from<T>(producer: {
+  subscribe: (fn: (v: T) => void) => { unsubscribe: () => void };
+}): Accessor<T | undefined> {
+  const [s, set] = createSignal<T | undefined>(undefined, { equals: false });
+  if ("subscribe" in producer) {
+    const unsub = producer.subscribe((v) => set(() => v));
+    onCleanup(() => unsub.unsubscribe());
+  }
+  return s;
 }
 
 export type WsMessageUp =
