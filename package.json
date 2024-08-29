@@ -5,6 +5,7 @@
   "main": "index.js",
   "scripts": {
     "dev": "vinxi dev",
+    "build": "vinxi build",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],
@@ -12,6 +13,7 @@
   "license": "ISC",
   "description": "",
   "dependencies": {
+    "@vinxi/server-functions": "^0.4.2",
     "rxjs": "^7.8.1",
     "vinxi": "^0.3.14",
     "vitest": "^2.0.5"

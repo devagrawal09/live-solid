@@ -42,7 +42,7 @@ export const endpoints: Endpoints = {
   createTimer,
 };
 
-export const client = new LiveSolidServer(peer, endpoints);
+export const client = new LiveSolidServer(peer);
 export function getOutbox() {
   return outbox;
 }

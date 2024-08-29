@@ -24,14 +24,8 @@ export function observable<T>(input: Accessor<T>): Observable<T> {
 export function from<T>(producer: {
   subscribe: (fn: (v: T) => void) => { unsubscribe: () => void };
 }): Accessor<T | undefined> {
-  console.log(`from 1`, producer);
   const [s, set] = createSignal<T | undefined>(undefined);
-
-  const sub = producer.subscribe((value) => {
-    console.log(`from 2`, value);
-    set(value);
-  });
-
+  const sub = producer.subscribe(set);
   onCleanup(() => sub.unsubscribe());
   return s;
 }

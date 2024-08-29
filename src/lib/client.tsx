@@ -1,9 +1,15 @@
-import { from, mergeMap, Observable } from "rxjs";
-import { SerializedRef, WsMessage, WsMessageDown, WsMessageUp } from "./shared";
-import { onCleanup } from "../../lib/signals";
+import { from as rxFrom, mergeMap, Observable } from "rxjs";
+import {
+  from as solidFrom,
+  SerializedRef,
+  WsMessage,
+  WsMessageDown,
+  WsMessageUp,
+} from "./shared";
+import { Accessor, onCleanup } from "../../lib/signals";
 
 const globalWsPromise = new Promise<SimpleWs>((resolve) => {
-  const ws = new WebSocket("ws://localhost:3000/server");
+  const ws = new WebSocket("ws://localhost:3000/_server");
   ws.onopen = () => resolve(ws);
 });
 
@@ -27,7 +33,7 @@ function wsRpc<T>(message: WsMessageUp, wsPromise: Promise<SimpleWs>) {
     }
 
     function handler(event: MessageEvent) {
-      console.log(`handler ${id}`, message, { data: event.data });
+      // console.log(`handler ${id}`, message, { data: event.data });
       const data = JSON.parse(event.data) as WsMessage<WsMessageDown<T>>;
       if (data.id === id) {
         res({ value: data.value, dispose });
@@ -45,9 +51,9 @@ function wsRpc<T>(message: WsMessageUp, wsPromise: Promise<SimpleWs>) {
 function wsSub<T>(message: WsMessageUp, wsPromise: Promise<SimpleWs>) {
   const id = crypto.randomUUID();
 
-  return from(Promise.resolve(wsPromise)).pipe(
+  return rxFrom(Promise.resolve(wsPromise)).pipe(
     mergeMap((ws) => {
-      console.log(`wsSub`, message);
+      // console.log(`wsSub`, message);
       return new Observable<T>((obs) => {
         function handler(event: MessageEvent) {
           const data = JSON.parse(event.data) as WsMessage<WsMessageDown<T>>;
@@ -67,21 +73,21 @@ function wsSub<T>(message: WsMessageUp, wsPromise: Promise<SimpleWs>) {
 }
 
 export type SocketRef<I, O> = (
-  input: I,
-  isListening: boolean
-) => Observable<O> | Promise<O>;
+  input?: I,
+  isListening?: boolean
+) => Accessor<O> | Promise<O>;
 
 export function exposeRef<I, O>(
   scopePromise: Promise<SerializedRef | Record<string, SerializedRef>>,
   wsPromise: Promise<SimpleWs>,
   key?: string
 ) {
-  console.log(`exposeRef`, key, scopePromise);
-  const ref: SocketRef<I, O> = (input, isListening) => {
+  // console.log(`exposeRef`, key, scopePromise);
+  const ref: SocketRef<I, O> = (input, isListening = true) => {
     if (isListening) {
-      return from(scopePromise).pipe(
+      const $ = rxFrom(scopePromise).pipe(
         mergeMap((scope) => {
-          console.log(`exposeRef 2`, { key, scope });
+          // console.log(`exposeRef 2`, { key, scope });
 
           return wsSub<O>(
             {
@@ -93,9 +99,10 @@ export function exposeRef<I, O>(
           );
         })
       );
+      return solidFrom($);
     } else {
       return scopePromise.then((scope) => {
-        console.log(`exposeRef 3`, key);
+        // console.log(`exposeRef 3`, key);
         return wsRpc<O>(
           {
             type: "invoke",
@@ -114,10 +121,10 @@ export function exposeRef<I, O>(
 export function createEndpoint<
   T extends SerializedRef | Record<string, SerializedRef>
 >(name: string, keys: string[] = [], wsPromise = globalWsPromise) {
-  console.log(`endpoint ${name} created with`);
+  // console.log(`endpoint ${name} created with`);
   const scopePromise = wsRpc<T>({ type: "create", name }, wsPromise);
   const scopeValue = scopePromise.then(({ value }) => {
-    console.log(`endpoint ${name} resolved with`, value);
+    // console.log(`endpoint ${name} resolved with`, value);
     return value;
   });
 
@@ -130,7 +137,7 @@ export function createEndpoint<
       return { ...acc, [key]: exposeRef(scopeValue, wsPromise, key) };
     }, {} as Record<string, SocketRef<any, any>>);
   } else {
-    console.log(`name`, name, `direct callable`);
+    // console.log(`name`, name, `direct callable`);
     return exposeRef(scopeValue, wsPromise);
   }
 }

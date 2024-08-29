@@ -7,6 +7,7 @@ import {
   WsMessageUp,
 } from "./shared";
 import { createRoot } from "../../lib/signals";
+import { getManifest } from "vinxi/manifest";
 
 export type Callable<T> = (arg: unknown) => T | Promise<T>;
 
@@ -23,7 +24,7 @@ export type SimplePeer = {
 export class LiveSolidServer {
   private closures = new Map<string, { payload: any; disposal: () => void }>();
 
-  constructor(public peer: SimplePeer, public endpoints: Endpoints) {}
+  constructor(public peer: SimplePeer) {}
 
   send<T>(message: WsMessage<WsMessageDown<T>>) {
     // console.log(`send`, message);
@@ -48,9 +49,15 @@ export class LiveSolidServer {
     }
   }
 
-  create<I>(id: string, name: string, input: I) {
-    const endpoint = this.endpoints[name];
+  async create<I>(id: string, name: string, input: I) {
+    const [filepath, functionName] = name.split("#");
+    const endpoint = // @ts-expect-error
+    (await getManifest(import.meta.env.ROUTER_NAME).chunks[filepath].import())[
+      functionName
+    ];
+
     if (!endpoint) throw new Error(`Endpoint ${name} not found`);
+
     const { payload, disposal } = createRoot((disposal) => {
       const payload = endpoint(input);
       return { payload, disposal };
@@ -127,30 +134,8 @@ export class LiveSolidServer {
   }
 }
 
-const mapp = new Map<string, LiveSolidServer>();
-
 function createSeriazliedRef(
   opts: Omit<SerializedRef, "__type">
 ): SerializedRef {
   return { ...opts, __type: "ref" };
 }
-
-export const serverHandler = (e: Endpoints) =>
-  eventHandler({
-    handler() {},
-    websocket: {
-      open(peer) {
-        mapp.set(peer.id, new LiveSolidServer(peer, e));
-      },
-      message(peer, e) {
-        const message = JSON.parse(e.text()) as WsMessage<WsMessageUp>;
-        const client = mapp.get(peer.id);
-        client.handleMessage(message);
-      },
-      async close(peer) {
-        const client = mapp.get(peer.id);
-        client?.cleanup();
-        mapp.delete(peer.id);
-      },
-    },
-  });
