@@ -1,12 +1,9 @@
-import { createAsync, createRenderEffect } from "../lib/signals";
+import { createRenderEffect } from "../lib/signals";
 import { createCounter, createTimer } from "./server";
-import { SocketRef } from "./lib/client";
 
 function Counter() {
   const button = document.createElement("button");
   const { count, setCount } = createCounter();
-
-  // RPC().then(console.log);
 
   createRenderEffect(count, (c) => {
     button.textContent = `count is ${c}`;
@@ -22,12 +19,9 @@ function Timer() {
   const timer = createTimer()();
   console.log({ timer });
 
-  createRenderEffect(
-    () => timer(),
-    (t) => {
-      span.textContent = `timer is ${t}`;
-    }
-  );
+  createRenderEffect(timer, (t) => {
+    span.textContent = `timer is ${t}`;
+  });
 
   return [span];
 }

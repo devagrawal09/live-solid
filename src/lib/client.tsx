@@ -72,27 +72,25 @@ function wsSub<T>(message: WsMessageUp, wsPromise: Promise<SimpleWs>) {
   );
 }
 
-export type SocketRef<I, O> = (
+export type SocketRef<I = any, O = any> = (
   input?: I,
   isListening?: boolean
 ) => Accessor<O> | Promise<O>;
 
 export function exposeRef<I, O>(
-  scopePromise: Promise<SerializedRef | Record<string, SerializedRef>>,
-  wsPromise: Promise<SimpleWs>,
-  key?: string
+  refPromise: Promise<SerializedRef>,
+  wsPromise: Promise<SimpleWs>
 ) {
   // console.log(`exposeRef`, key, scopePromise);
   const ref: SocketRef<I, O> = (input, isListening = true) => {
     if (isListening) {
-      const $ = rxFrom(scopePromise).pipe(
-        mergeMap((scope) => {
+      const $ = rxFrom(refPromise).pipe(
+        mergeMap((ref) => {
           // console.log(`exposeRef 2`, { key, scope });
-
           return wsSub<O>(
             {
               type: "subscribe",
-              ref: key ? scope[key] : scope,
+              ref,
               input,
             },
             wsPromise
@@ -101,12 +99,12 @@ export function exposeRef<I, O>(
       );
       return solidFrom($);
     } else {
-      return scopePromise.then((scope) => {
+      return refPromise.then((ref) => {
         // console.log(`exposeRef 3`, key);
         return wsRpc<O>(
           {
             type: "invoke",
-            ref: key ? scope[key] : scope,
+            ref,
             input,
           },
           wsPromise
@@ -117,12 +115,17 @@ export function exposeRef<I, O>(
 
   return ref;
 }
+function assertRef(ref: any): SerializedRef {
+  if (ref.__type === "ref") return ref;
+  throw new Error(`not a ref`);
+}
 
-export function createEndpoint<
-  T extends SerializedRef | Record<string, SerializedRef>
->(name: string, keys: string[] = [], wsPromise = globalWsPromise) {
+export function createEndpoint(name: string, wsPromise = globalWsPromise) {
   // console.log(`endpoint ${name} created with`);
-  const scopePromise = wsRpc<T>({ type: "create", name }, wsPromise);
+  const scopePromise = wsRpc<SerializedRef | Record<string, SerializedRef>>(
+    { type: "create", name },
+    wsPromise
+  );
   const scopeValue = scopePromise.then(({ value }) => {
     // console.log(`endpoint ${name} resolved with`, value);
     return value;
@@ -132,12 +135,16 @@ export function createEndpoint<
     scopePromise.then(({ dispose }) => dispose());
   });
 
-  if (keys.length) {
-    return keys.reduce((acc, key) => {
-      return { ...acc, [key]: exposeRef(scopeValue, wsPromise, key) };
-    }, {} as Record<string, SocketRef<any, any>>);
-  } else {
-    // console.log(`name`, name, `direct callable`);
-    return exposeRef(scopeValue, wsPromise);
-  }
+  return new Proxy<SocketRef | Record<string, SocketRef>>((() => {}) as any, {
+    apply(_, __, args) {
+      const refPromise = scopeValue.then(assertRef);
+      return exposeRef(refPromise, wsPromise)(args[0], args[1]);
+    },
+    get(_, path) {
+      const refPromise = scopeValue.then((callables) =>
+        assertRef(callables[path])
+      );
+      return exposeRef(refPromise, wsPromise);
+    },
+  });
 }
