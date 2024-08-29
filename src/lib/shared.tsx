@@ -8,8 +8,8 @@ import {
   createSignal,
 } from "../../lib/signals";
 
-export function observable<T>(input: Accessor<T>): Observable<T> {
-  return new Observable((observer) => {
+export function observable<T>(input: Accessor<T>) {
+  return new Observable<T>((observer) => {
     const dispose = createRoot((disposer) => {
       createEffect(input, (v) => observer.next(v));
       return disposer;

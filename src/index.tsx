@@ -1,12 +1,12 @@
 import { Observable } from "rxjs";
 import { createRenderEffect } from "../lib/signals";
 import { createEndpoint, type SocketRef } from "./lib/client";
-import { from, type SerializedRef } from "./lib/shared";
+import { from } from "./lib/shared";
 
 function Counter() {
   const button = document.createElement("button");
-  const serverCounter = createEndpoint(`createCounter`, [`count`, `setCount`]);
-  const count = from(serverCounter.count(null, true));
+  const serverCounter = createEndpoint(`createCounter`) as ServerCounter;
+  const count = from(serverCounter.count() as Observable<number>);
 
   createRenderEffect(count, (c) => {
     button.textContent = `count is ${c}`;
@@ -19,16 +19,11 @@ function Counter() {
 function Timer() {
   const span = document.createElement("span");
   const serverTimer = createServerTimer();
-  const timer$ = serverTimer(null, true) as Observable<number>;
-  console.log(`timer$`, timer$);
-  const timer = from(timer$);
+  const timer = from(serverTimer() as Observable<number>);
 
-  createRenderEffect(
-    () => timer(),
-    (t) => {
-      span.textContent = `timer is ${t}`;
-    }
-  );
+  createRenderEffect(timer, (t) => {
+    span.textContent = `timer is ${t}`;
+  });
 
   return [span];
 }
@@ -38,26 +33,16 @@ function App() {
 }
 
 type ServerCounter = {
-  count: SerializedRef<void, number>;
-  setCount: SerializedRef<number, number>;
-};
-
-type ClientCounter = {
   count: SocketRef<void, number>;
   setCount: SocketRef<number, number>;
 };
 
 function createServerCounter() {
-  return createEndpoint<ServerCounter>(`createCounter`, [
-    `count`,
-    `setCount`,
-  ]) as ClientCounter;
+  return createEndpoint(`createCounter`) as ServerCounter;
 }
 
 function createServerTimer() {
-  return createEndpoint<SerializedRef<void, number>>(
-    `createTimer`
-  ) as SocketRef<void, number>;
+  return createEndpoint(`createTimer`) as SocketRef<void, number>;
 }
 
 document.getElementById("root").append(...App());

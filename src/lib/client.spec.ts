@@ -18,11 +18,10 @@ describe(`LiveSolidClient createEndpoint`, () => {
     const serverTimer = createRoot((d) => {
       disposal = d;
 
-      return createEndpoint(
-        `createTimer`,
-        [],
-        Promise.resolve(ws)
-      ) as SocketRef<void, number>;
+      return createEndpoint(`createTimer`, Promise.resolve(ws)) as SocketRef<
+        void,
+        number
+      >;
     });
 
     expect(serverTimer).toBeInstanceOf(Function);
@@ -39,11 +38,10 @@ describe(`LiveSolidClient createEndpoint`, () => {
     const serverTimer = createRoot((d) => {
       disposal = d;
 
-      return createEndpoint(
-        `createTimer`,
-        [],
-        Promise.resolve(ws)
-      ) as SocketRef<void, number>;
+      return createEndpoint(`createTimer`, Promise.resolve(ws)) as SocketRef<
+        void,
+        number
+      >;
     });
     const timer$ = serverTimer(null, true) as Observable<number>;
     await setTimeout(0);
@@ -76,11 +74,7 @@ describe(`LiveSolidClient createEndpoint`, () => {
     const serverCounter = createRoot((d) => {
       disposal = d;
 
-      return createEndpoint(
-        `createCounter`,
-        [`count`, `setCount`],
-        Promise.resolve(ws)
-      ) as {
+      return createEndpoint(`createCounter`, Promise.resolve(ws)) as {
         count: SocketRef<void, number>;
         setCount: SocketRef<number, number>;
       };
@@ -101,11 +95,7 @@ describe(`LiveSolidClient createEndpoint`, () => {
     const serverCounter = createRoot((d) => {
       disposal = d;
 
-      return createEndpoint(
-        `createCounter`,
-        ["count", "setCount"],
-        Promise.resolve(ws)
-      ) as {
+      return createEndpoint(`createCounter`, Promise.resolve(ws)) as {
         count: SocketRef<void, number>;
         setCount: SocketRef<number, number>;
       };
@@ -136,11 +126,10 @@ describe(`LiveSolidClient createEndpoint`, () => {
     const serverTimer = createRoot((d) => {
       innerDisposal = d;
 
-      return createEndpoint(
-        `createTimer`,
-        [],
-        Promise.resolve(ws)
-      ) as SocketRef<void, number>;
+      return createEndpoint(`createTimer`, Promise.resolve(ws)) as SocketRef<
+        void,
+        number
+      >;
     });
     const timer$ = serverTimer(null, true) as Observable<number>;
     await setTimeout(0);
@@ -176,11 +165,7 @@ describe(`LiveSolidClient createEndpoint`, () => {
     const serverCounter = createRoot((d) => {
       innerDisposal = d;
 
-      return createEndpoint(
-        `createCounter`,
-        ["count", "setCount"],
-        Promise.resolve(ws)
-      ) as {
+      return createEndpoint(`createCounter`, Promise.resolve(ws)) as {
         count: SocketRef<void, number>;
         setCount: SocketRef<number, number>;
       };
