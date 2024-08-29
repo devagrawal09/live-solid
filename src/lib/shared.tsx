@@ -24,41 +24,46 @@ export function observable<T>(input: Accessor<T>): Observable<T> {
 export function from<T>(producer: {
   subscribe: (fn: (v: T) => void) => { unsubscribe: () => void };
 }): Accessor<T | undefined> {
-  const [s, set] = createSignal<T | undefined>(undefined, { equals: false });
-  if ("subscribe" in producer) {
-    const unsub = producer.subscribe((v) => set(() => v));
-    onCleanup(() => unsub.unsubscribe());
-  }
+  console.log(`from 1`, producer);
+  const [s, set] = createSignal<T | undefined>(undefined);
+
+  const sub = producer.subscribe((value) => {
+    console.log(`from 2`, value);
+    set(value);
+  });
+
+  onCleanup(() => sub.unsubscribe());
   return s;
 }
 
-export type WsMessageUp =
+export type WsMessage<T> = T & { id: string };
+
+export type WsMessageUp<I = any> =
   | {
-      type: "pull";
-      scope?: string;
-      key: string;
-      value?: any;
-      id: string;
+      type: "create";
+      name: string;
+      input?: I;
+    }
+  | {
+      type: "subscribe";
+      ref: SerializedRef;
+      input?: I;
     }
   | {
       type: "dispose";
-      id: string;
     }
   | {
-      type: "push";
-      scope?: string;
-      key: string;
-      value?: any;
-      id: string;
+      type: "invoke";
+      ref: SerializedRef;
+      input?: I;
     };
 
-export type WsMessageDown = {
-  id: string;
-  value: any;
+export type WsMessageDown<T> = {
+  value: T;
 };
 
-export type SerializedRef = {
+export type SerializedRef<I = any, O = any> = {
   __type: "ref";
-  key: string;
+  name: string;
   scope: string;
 };

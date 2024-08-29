@@ -1,5 +1,5 @@
 import { STATE_CLEAN, STATE_DISPOSED } from './constants';
-import { Computation, UNCHANGED, compute, type MemoOptions } from './core';
+import { Computation, incrementClock, UNCHANGED, type SignalOptions } from './core';
 import { type Owner } from './owner';
 
 let scheduledEffects = false,
@@ -50,43 +50,37 @@ function runEffects() {
     scheduledEffects = false;
     return;
   }
-
   runningEffects = true;
-
   try {
-    for (let i = 0; i < renderEffects.length; i++) {
-      if (renderEffects[i]._state !== STATE_CLEAN) {
-        runTop(renderEffects[i]);
-      }
-    }
-    for (let i = 0; i < effects.length; i++) {
-      if (effects[i]._state !== STATE_CLEAN) {
-        runTop(effects[i]);
-      }
-    }
-    for (let i = 0; i < renderEffects.length; i++) {
-      if (
-        renderEffects[i].modified &&
-        renderEffects[i]._state !== STATE_DISPOSED
-      ) {
-        compute(renderEffects[i], renderEffects[i].effect, renderEffects[i]);
-        renderEffects[i].modified = false;
-      }
-    }
-    for (let i = 0; i < effects.length; i++) {
-      if (
-        effects[i].modified &&
-        effects[i]._state !== STATE_DISPOSED
-      ) {
-        compute(effects[i], effects[i].effect, effects[i]);
-        effects[i].modified = false;
-      }
-    }
+    runPureQueue(renderEffects);
+    runPureQueue(effects);
+    incrementClock();
+    runEffectQueue(renderEffects);
+    runEffectQueue(effects);
   } finally {
     effects = [];
     renderEffects = [];
     scheduledEffects = false;
     runningEffects = false;
+  }
+}
+
+function runPureQueue(queue: Computation[]) {
+  for (let i = 0; i < queue.length; i++) {
+    if (queue[i]._state !== STATE_CLEAN) runTop(queue[i]);
+  }
+}
+
+function runEffectQueue(queue: BaseEffect[]) {
+  for (let i = 0; i < queue.length; i++) {
+    if (
+      queue[i]._modified &&
+      queue[i]._state !== STATE_DISPOSED
+    ) {
+      queue[i]._effect(queue[i]._value, queue[i]._prevValue);
+      queue[i]._modified = false;
+      queue[i]._prevValue = queue[i]._value;
+    }
   }
 }
 
@@ -96,22 +90,24 @@ function runEffects() {
  * sources and recompute
  */
 class BaseEffect<T = any> extends Computation<T> {
-  effect: (val: T) => void;
-  modified: boolean = false;
+  _effect: (val: T, prev: T | undefined) => void;
+  _modified: boolean = false;
+  _prevValue: T | undefined;
   constructor(
     initialValue: T,
     compute: () => T,
-    effect: (val: T) => void,
-    options?: MemoOptions<T>,
+    effect: (val: T, prev: T | undefined) => void,
+    options?: SignalOptions<T>,
   ) {
     super(initialValue, compute, options);
-    this.effect = effect;
+    this._effect = effect;
+    this._prevValue = initialValue;
   }
 
   override write(value: T): T {
     if (value === UNCHANGED) return this._value as T;
     this._value = value;
-    this.modified = true;
+    this._modified = true;
 
     return value;
   }
@@ -119,14 +115,20 @@ class BaseEffect<T = any> extends Computation<T> {
   override _setError(error: unknown): void {
     this.handleError(error);
   }
+
+  override _disposeNode(): void {
+    this._effect = undefined as any;
+    this._prevValue = undefined;
+    super._disposeNode();
+  }
 }
 
 export class Effect<T = any> extends BaseEffect<T> {
   constructor(
     initialValue: T,
     compute: () => T,
-    effect: (val: T) => void,
-    options?: MemoOptions<T>,
+    effect: (val: T, prev: T | undefined) => void,
+    options?: SignalOptions<T>,
   ) {
     super(initialValue, compute, effect, options);
     effects.push(this);
@@ -149,8 +151,8 @@ export class RenderEffect<T = any> extends BaseEffect<T> {
   constructor(
     initialValue: T,
     compute: () => T,
-    effect: (val: T) => void,
-    options?: MemoOptions<T>,
+    effect: (val: T, prev: T | undefined) => void,
+    options?: SignalOptions<T>,
   ) {
     super(initialValue, compute, effect, options);
     this._updateIfNecessary();

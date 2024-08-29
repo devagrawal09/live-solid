@@ -1,78 +1,133 @@
-import { type Peer } from "crossws";
 import { eventHandler } from "vinxi/http";
-import { SerializedRef, WsMessageUp } from "./shared";
-import { firstValueFrom, isObservable, Observable } from "rxjs";
+import {
+  observable,
+  SerializedRef,
+  WsMessage,
+  WsMessageDown,
+  WsMessageUp,
+} from "./shared";
+import { createRoot } from "../../lib/signals";
 
 export type Callable<T> = (arg: unknown) => T | Promise<T>;
 
-export type Endpoint<T> = Callable<T> | Record<string, Callable<T>>;
-export type Endpoints<T> = Record<string, Endpoint<T>>;
+export type Endpoint<I> = (
+  input: I
+) => Callable<any> | Record<string, Callable<any>>;
+export type Endpoints = Record<string, Endpoint<any>>;
 
-class LiveClient {
-  private closures = new Map<string, any>();
+export type SimplePeer = {
+  id: string;
+  send(message: any): void;
+};
 
-  constructor(public peer: Peer, public endpoints: Endpoints<any>) {}
+export class LiveSolidServer {
+  private closures = new Map<string, { payload: any; disposal: () => void }>();
 
-  pull({
-    scope,
-    key,
-    value,
-    id,
-  }: {
-    scope?: string;
-    key: string;
-    value?: any;
-    id: string;
-  }) {
-    const obs = this.endpoints[key];
+  constructor(public peer: SimplePeer, public endpoints: Endpoints) {}
+
+  send<T>(message: WsMessage<WsMessageDown<T>>) {
+    // console.log(`send`, message);
+    this.peer.send(JSON.stringify(message));
   }
 
-  dispose(id: string) {}
+  handleMessage(message: WsMessage<WsMessageUp>) {
+    if (message.type === "create") {
+      this.create(message.id, message.name, message.input);
+    }
 
-  async push({
-    scope,
-    key,
-    value,
-    id,
-  }: {
-    scope?: string;
-    key: string;
-    value?: any;
-    id: string;
-  }) {
-    const callable = this.endpoints[key];
-    const callablePromise = isObservable(callable)
-      ? firstValueFrom(callable)
-      : callable(value);
-    const result = await callablePromise;
+    if (message.type === "subscribe") {
+      this.subscribe(message.id, message.ref, message.input);
+    }
 
-    this.closures.set(id, result);
+    if (message.type === "dispose") {
+      this.dispose(message.id);
+    }
 
-    console.log({ id, key, result });
-
-    // const payload =
-    //   result &&
-    //   Object.entries(exposed[key](value)).reduce((res, [name, value]) => {
-    //     return {
-    //       ...res,
-    //       [name]:
-    //         typeof value === "function"
-    //           ? createSeriazliedRef({ key: name, scope: id })
-    //           : value,
-    //     };
-    //   }, {});
-    // this.peer.send(
-    //   JSON.stringify({
-    //     id: id,
-    //     value: payload,
-    //   } satisfies WsMessageDown)
-    // );
+    if (message.type === "invoke") {
+      this.invoke(message.id, message.ref, message.input);
+    }
   }
 
-  async cleanup() {}
+  create<I>(id: string, name: string, input: I) {
+    const endpoint = this.endpoints[name];
+    if (!endpoint) throw new Error(`Endpoint ${name} not found`);
+    const { payload, disposal } = createRoot((disposal) => {
+      const payload = endpoint(input);
+      return { payload, disposal };
+    });
+
+    this.closures.set(id, { payload, disposal });
+
+    if (typeof payload === "function") {
+      const value = createSeriazliedRef({
+        name,
+        scope: id,
+      });
+      this.send({ value, id });
+    } else {
+      const value = Object.entries(payload).reduce((res, [name, value]) => {
+        return {
+          ...res,
+          [name]:
+            typeof value === "function"
+              ? createSeriazliedRef({ name, scope: id })
+              : value,
+        };
+      }, {} as Record<string, SerializedRef>);
+      this.send({ value, id });
+    }
+  }
+
+  invoke<I, O>(id: string, ref: SerializedRef<I, O>, input: I) {
+    const closure = this.closures.get(ref.scope);
+    if (!closure) throw new Error(`Callable ${ref.scope} not found`);
+    const { payload } = closure;
+
+    if (typeof payload === "function") {
+      const response = payload(input);
+      this.send({ id, value: response });
+    } else {
+      const response = payload[ref.name](input);
+      this.send({ id, value: response });
+    }
+  }
+
+  dispose(id: string) {
+    // console.log(`Disposing ${id}`);
+    const closure = this.closures.get(id);
+    if (closure) {
+      closure.disposal();
+      this.closures.delete(id);
+    }
+  }
+
+  subscribe<I, O>(id: string, ref: SerializedRef<I, O>, input: I) {
+    // console.log(`subscribe`, ref);
+
+    const closure = this.closures.get(ref.scope);
+    if (!closure) throw new Error(`Callable ${ref.scope} not found`);
+    const { payload } = closure;
+
+    const func = typeof payload === "function" ? payload : payload[ref.name];
+
+    const response$ = observable(() => func(input));
+    const sub = response$.subscribe((value) => {
+      // console.log({ value, ...ref });
+      this.send({ id, value });
+    });
+    this.closures.set(id, { payload: sub, disposal: () => sub.unsubscribe() });
+  }
+
+  cleanup() {
+    for (const [key, closure] of this.closures.entries()) {
+      // console.log(`Disposing ${key}`);
+      closure.disposal();
+      this.closures.delete(key);
+    }
+  }
 }
 
-const mapp = new Map<string, LiveClient>();
+const mapp = new Map<string, LiveSolidServer>();
 
 function createSeriazliedRef(
   opts: Omit<SerializedRef, "__type">
@@ -85,25 +140,16 @@ export const serverHandler = (e: Endpoints) =>
     handler() {},
     websocket: {
       open(peer) {
-        mapp.set(peer.id, new LiveClient(peer, e));
+        mapp.set(peer.id, new LiveSolidServer(peer, e));
       },
       message(peer, e) {
-        const message = JSON.parse(e.text()) as WsMessageUp;
-        console.log(`message`, { peer, ...message });
-
+        const message = JSON.parse(e.text()) as WsMessage<WsMessageUp>;
         const client = mapp.get(peer.id);
-
-        if (message.type === "pull") {
-          client.pull(message);
-        } else if (message.type === "dispose") {
-          client.dispose(message.id);
-        } else if (message.type === "push") {
-          client.push(message);
-        }
+        client.handleMessage(message);
       },
       async close(peer) {
         const client = mapp.get(peer.id);
-        await client.cleanup();
+        client?.cleanup();
         mapp.delete(peer.id);
       },
     },

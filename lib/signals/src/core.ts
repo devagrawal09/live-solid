@@ -40,17 +40,16 @@ import { getOwner, Owner, setOwner } from './owner';
 export interface SignalOptions<T> {
   name?: string;
   equals?: ((prev: T, next: T) => boolean) | false;
-}
-
-export interface MemoOptions<T> extends SignalOptions<T> {
-  initial?: T;
+  unobserved?: () => void;
 }
 
 interface SourceType {
   _observers: ObserverType[] | null;
+  _unobserved?: () => void;
   _updateIfNecessary: () => void;
 
   _stateFlags: Flags;
+  _time: number;
 }
 
 interface ObserverType {
@@ -59,19 +58,26 @@ interface ObserverType {
 
   _handlerMask: Flags;
   _notifyFlags: (mask: Flags, newFlags: Flags) => void;
+  _time: number;
 }
 
 let currentObserver: ObserverType | null = null,
   currentMask: Flags = DEFAULT_FLAGS,
   newSources: SourceType[] | null = null,
   newSourcesIndex = 0,
-  newFlags = 0;
+  newFlags = 0,
+  clock = 0,
+  updateCheck: null | { _value: boolean } = null;
 
 /**
  * Returns the current observer.
  */
 export function getObserver(): ObserverType | null {
   return currentObserver;
+}
+
+export function incrementClock(): void {
+  clock++;
 }
 
 export const UNCHANGED: unique symbol = Symbol(__DEV__ ? 'unchanged' : 0);
@@ -92,6 +98,7 @@ export class Computation<T = any>
   // Using false is an optimization as an alternative to _equals: () => false
   // which could enable more efficient DIRTY notification
   _equals: false | ((a: T, b: T) => boolean) = isEqual;
+  _unobserved: (() => void) | undefined;
 
   /** Whether the computation is an error or has ancestors that are unresolved */
   _stateFlags = 0;
@@ -101,11 +108,12 @@ export class Computation<T = any>
 
   _error: Computation<boolean> | null = null;
   _loading: Computation<boolean> | null = null;
+  _time: number = -1;
 
   constructor(
     initialValue: T | undefined,
     compute: null | (() => T),
-    options?: MemoOptions<T>,
+    options?: SignalOptions<T>,
   ) {
     // Initialize self as a node in the Owner tree, for tracking cleanups.
     // If we aren't passed a compute function, we don't need to track nested computations
@@ -122,6 +130,8 @@ export class Computation<T = any>
       this._name = options?.name ?? (this._compute ? 'computed' : 'signal');
 
     if (options?.equals !== undefined) this._equals = options.equals;
+
+    if (options?.unobserved) this._unobserved = options?.unobserved;
   }
 
   _read(): T {
@@ -129,7 +139,7 @@ export class Computation<T = any>
 
     // When the currentObserver reads this._value, the want to add this computation as a source
     // so that when this._value changes, the currentObserver will be re-executed
-    track(this);
+    if (!this._sources || this._sources.length) track(this);
 
     // TODO do a handler lookup instead
     newFlags |= this._stateFlags & ~currentMask;
@@ -214,6 +224,7 @@ export class Computation<T = any>
       changedFlags = changedFlagsMask & flags;
 
     this._stateFlags = flags;
+    this._time = clock + 1;
 
     // Our value has changed, so we need to notify all of our observers that the value has
     // changed and so they must rerun
@@ -451,6 +462,9 @@ function track(computation: SourceType): void {
       // https://github.com/solidjs/solid/issues/46#issuecomment-515717924
       newSources.push(computation);
     }
+    if (updateCheck) {
+      updateCheck._value = computation._time > currentObserver._time;
+    }
   }
 }
 
@@ -547,6 +561,8 @@ function removeSourceObservers(node: ObserverType, index: number): void {
       swap = source._observers.indexOf(node);
       source._observers[swap] = source._observers[source._observers.length - 1];
       source._observers.pop();
+      // maybe could get overcalled?
+      if (!source._observers.length) source._unobserved?.();
     }
   }
 }
@@ -562,6 +578,17 @@ export function isEqual<T>(a: T, b: T): boolean {
 export function untrack<T>(fn: () => T): T {
   if (currentObserver === null) return fn();
   return compute(getOwner(), fn, null);
+}
+
+export function hasUpdated(fn: () => any): Boolean {
+  const current = updateCheck;
+  updateCheck = { _value: false };
+  try {
+    fn();
+    return updateCheck._value;
+  } finally {
+    updateCheck = current;
+  }
 }
 
 /**

@@ -13,6 +13,10 @@
   "description": "",
   "dependencies": {
     "rxjs": "^7.8.1",
-    "vinxi": "^0.3.14"
+    "vinxi": "^0.3.14",
+    "vitest": "^2.0.5"
+  },
+  "devDependencies": {
+    "@vitest/ui": "^2.0.5"
   }
 }

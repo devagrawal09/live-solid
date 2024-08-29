@@ -1,4 +1,5 @@
 import { Computation, getObserver } from './core';
+import { RenderEffect } from './effect';
 
 export type Store<T> = Readonly<T>;
 export type StoreSetter<T> = (fn: (state: T) => void) => void;
@@ -9,6 +10,8 @@ type DataNodes = Record<PropertyKey, DataNode>;
 const $RAW = Symbol(__DEV__ ? 'STORE_RAW' : 0),
   $TRACK = Symbol(__DEV__ ? 'STORE_TRACK' : 0),
   $PROXY = Symbol(__DEV__ ? 'STORE_PROXY' : 0);
+
+export { $PROXY, $TRACK };
 
 const PROXIES = new WeakMap<any, any>();
 // 0: DATA, 1: HAS
@@ -100,6 +103,9 @@ function getNode(nodes: DataNodes, property: PropertyKey, value?: any) {
   if (nodes[property]) return nodes[property]!;
   return (nodes[property] = new Computation<any>(value, null, {
     equals: false,
+    unobserved() {
+      delete nodes[property];
+    },
   }));
 }
 
@@ -122,7 +128,7 @@ function ownKeys(target: StoreNode) {
   return Reflect.ownKeys(target);
 }
 
-let Writing = false;
+const Writing = new Set<Object>();
 const proxyTraps: ProxyHandler<StoreNode> = {
   get(target, property, receiver) {
     if (property === $RAW) return target;
@@ -135,6 +141,10 @@ const proxyTraps: ProxyHandler<StoreNode> = {
     if (desc && desc.get) return desc.get.call(receiver);
     const nodes = getNodes(target, 0);
     const tracked = nodes[property];
+    if (Writing.has(target)) {
+      const value = tracked ? tracked._value : target[property];
+      return isWrappable(value) ? (Writing.add(value), wrap(value)) : value;
+    }
     let value = tracked ? nodes[property].read() : target[property];
     if (
       !tracked &&
@@ -158,12 +168,12 @@ const proxyTraps: ProxyHandler<StoreNode> = {
   },
 
   set(target, property, value) {
-    Writing && setProperty(target, property, unwrap(value));
+    Writing.has(target) && setProperty(target, property, unwrap(value));
     return true;
   },
 
   deleteProperty(target, property) {
-    Writing && setProperty(target, property, undefined, true);
+    Writing.has(target) && setProperty(target, property, undefined, true);
     return true;
   },
 
@@ -195,18 +205,49 @@ function setProperty(
 
 export function createStore<T extends object = {}>(
   store: T | Store<T>,
+): [get: Store<T>, set: StoreSetter<T>];
+export function createStore<T extends object = {}>(
+  fn: (store: T) => void,
+  store: T | Store<T>,
+): [get: Store<T>, set: StoreSetter<T>];
+export function createStore<T extends object = {}>(
+  first: T | ((store: T) => void),
+  second?: T | Store<T>,
 ): [get: Store<T>, set: StoreSetter<T>] {
-  const unwrappedStore = unwrap(store);
+  const derived = typeof first === 'function',
+    store = derived ? second! : first,
+    unwrappedStore = unwrap(store!);
 
   const wrappedStore = wrap(unwrappedStore);
-  const setStore = (fn: (state: T) => void): void => {
+  const setStore = (fn: (draft: T) => void): void => {
     try {
-      Writing = true;
+      Writing.add(store);
       fn(wrappedStore);
     } finally {
-      Writing = false;
+      Writing.clear();
     }
   };
+  if (derived) {
+    // unsafe implementation
+    new RenderEffect<T | undefined>(
+      undefined,
+      () => setStore(first) as any,
+      () => {},
+    );
+  }
 
   return [wrappedStore, setStore];
+}
+
+/**
+ * Creates a mutable derived value
+ *
+ * @see {@link https://github.com/solidjs/x-reactivity#createprojection}
+ */
+export function createProjection<T extends Object>(
+  fn: (draft: T) => void,
+  initialValue: T,
+) {
+  const [store] = createStore(fn, initialValue);
+  return store;
 }
