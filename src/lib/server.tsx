@@ -1,4 +1,3 @@
-import { eventHandler } from "vinxi/http";
 import {
   observable,
   SerializedRef,
@@ -51,10 +50,11 @@ export class LiveSolidServer {
 
   async create<I>(id: string, name: string, input: I) {
     const [filepath, functionName] = name.split("#");
-    const endpoint = // @ts-expect-error
-    (await getManifest(import.meta.env.ROUTER_NAME).chunks[filepath].import())[
-      functionName
-    ];
+    // @ts-expect-error
+    const module = await getManifest(import.meta.env.ROUTER_NAME).chunks[
+      filepath
+    ].import();
+    const endpoint = module[functionName];
 
     if (!endpoint) throw new Error(`Endpoint ${name} not found`);
 
@@ -138,4 +138,18 @@ function createSeriazliedRef(
   opts: Omit<SerializedRef, "__type">
 ): SerializedRef {
   return { ...opts, __type: "ref" };
+}
+
+export function createSocketFn<I, O>(
+  fn: () => (i?: I) => O
+): () => (i?: I) => Promise<O>;
+
+export function createSocketFn<I, O>(
+  fn: () => Record<string, (i?: I) => O>
+): () => Record<string, (i?: I) => Promise<O>>;
+
+export function createSocketFn<I, O>(
+  fn: () => ((i: I) => O) | Record<string, (i: I) => O>
+): () => ((i: I) => Promise<O>) | Record<string, (i: I) => Promise<O>> {
+  return fn as any;
 }

@@ -1,7 +1,9 @@
-import { createEffect, createSignal, onCleanup } from "../lib/signals";
+"use socket";
 
-export function createTimer() {
-  "use socket";
+import { createEffect, createSignal, onCleanup } from "../lib/signals";
+import { createSocketFn } from "./lib/server";
+
+function createTimer() {
   const [timer, setTimer] = createSignal(10);
 
   console.log(`setting up timer`);
@@ -18,10 +20,15 @@ export function createTimer() {
 
   return timer;
 }
-export function createCounter() {
+
+export const createServerTimer = createSocketFn(createTimer);
+
+function createCounter() {
   const [count, setCount] = createSignal(50);
 
   createEffect(count, (c) => console.log(`Count is`, c));
 
   return { count, setCount };
 }
+
+export const createServerCounter = createSocketFn(createCounter);

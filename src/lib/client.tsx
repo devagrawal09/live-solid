@@ -1,12 +1,6 @@
 import { from as rxFrom, mergeMap, Observable } from "rxjs";
-import {
-  from as solidFrom,
-  SerializedRef,
-  WsMessage,
-  WsMessageDown,
-  WsMessageUp,
-} from "./shared";
-import { Accessor, onCleanup } from "../../lib/signals";
+import { SerializedRef, WsMessage, WsMessageDown, WsMessageUp } from "./shared";
+import { getObserver, onCleanup } from "../../lib/signals";
 
 const globalWsPromise = new Promise<SimpleWs>((resolve) => {
   const ws = new WebSocket("ws://localhost:3000/_server");
@@ -73,20 +67,22 @@ function wsSub<T>(message: WsMessageUp, wsPromise: Promise<SimpleWs>) {
 }
 
 export type SocketRef<I = any, O = any> = (
-  input?: I,
-  isListening?: boolean
-) => Accessor<O> | Promise<O>;
+  input?: I
+) => Observable<O> | Promise<O>;
 
-export function exposeRef<I, O>(
+export function createRef<I, O>(
   refPromise: Promise<SerializedRef>,
   wsPromise: Promise<SimpleWs>
 ) {
-  // console.log(`exposeRef`, key, scopePromise);
-  const ref: SocketRef<I, O> = (input, isListening = true) => {
-    if (isListening) {
-      const $ = rxFrom(refPromise).pipe(
+  console.log(`exposeRef`, refPromise);
+
+  const invokeRef = (input: I) => {
+    const observer = getObserver();
+    console.log({ observer });
+    if (observer) {
+      return rxFrom(refPromise).pipe(
         mergeMap((ref) => {
-          // console.log(`exposeRef 2`, { key, scope });
+          console.log(`exposeRef 2`, refPromise);
           return wsSub<O>(
             {
               type: "subscribe",
@@ -97,7 +93,6 @@ export function exposeRef<I, O>(
           );
         })
       );
-      return solidFrom($);
     } else {
       return refPromise.then((ref) => {
         // console.log(`exposeRef 3`, key);
@@ -113,7 +108,7 @@ export function exposeRef<I, O>(
     }
   };
 
-  return ref;
+  return invokeRef;
 }
 function assertRef(ref: any): SerializedRef {
   if (ref.__type === "ref") return ref;
@@ -136,15 +131,19 @@ export function createEndpoint(name: string, wsPromise = globalWsPromise) {
   });
 
   return new Proxy<SocketRef | Record<string, SocketRef>>((() => {}) as any, {
-    apply(_, __, args) {
+    apply(_, __, [input]) {
+      console.log({ input });
       const refPromise = scopeValue.then(assertRef);
-      return exposeRef(refPromise, wsPromise)(args[0], args[1]);
+      const invokeRef = createRef(refPromise, wsPromise);
+      return invokeRef(input);
     },
     get(_, path) {
+      console.log({ path });
       const refPromise = scopeValue.then((callables) =>
         assertRef(callables[path])
       );
-      return exposeRef(refPromise, wsPromise);
+      const invokeRef = createRef(refPromise, wsPromise);
+      return invokeRef;
     },
   });
 }
