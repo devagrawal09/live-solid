@@ -13,8 +13,10 @@
   "license": "ISC",
   "description": "",
   "dependencies": {
+    "@vinxi/plugin-directives": "^0.4.2",
     "@vinxi/server-functions": "^0.4.2",
     "rxjs": "^7.8.1",
+    "rxjs-for-await": "^1.0.0",
     "vinxi": "^0.3.14",
     "vitest": "^2.0.5"
   },
