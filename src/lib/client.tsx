@@ -74,9 +74,7 @@ export function createRef<I, O>(
   wsPromise: Promise<SimpleWs>
 ) {
   return (input: I) => {
-    const observer = getObserver();
-
-    if (observer) {
+    if (getObserver()) {
       return latestValueFrom(
         rxFrom(refPromise).pipe(
           mergeMap((ref) => {
