@@ -2,10 +2,10 @@ import { createAsync, createRenderEffect } from "../lib/signals";
 import { createTimer, createCounter } from "./server";
 
 function Counter() {
-  const button = document.createElement("button");
   const serverCounter = createCounter();
   const count = createAsync(() => serverCounter.count());
 
+  const button = document.createElement("button");
   createRenderEffect(count, (c) => {
     button.textContent = `count is ${c}`;
   });
@@ -15,12 +15,11 @@ function Counter() {
 }
 
 function Timer() {
-  const span = document.createElement("span");
-
   const serverTimer = createTimer();
 
   const timer = createAsync(() => serverTimer());
 
+  const span = document.createElement("span");
   createRenderEffect(timer, (t) => {
     span.textContent = `timer is ${t}`;
   });
