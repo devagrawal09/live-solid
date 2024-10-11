@@ -1,12 +1,16 @@
 import {
   observable,
+  observableRoot,
   SerializedRef,
   WsMessage,
   WsMessageDown,
   WsMessageUp,
+  WsMessageUpCreate,
+  WsMessageUpDispose,
 } from "./shared";
-import { createRoot } from "../../lib/signals";
+import { createRoot } from "../../lib/signals/dist/types";
 import { getManifest } from "vinxi/manifest";
+import { filter, map, mergeMap, Observable, takeUntil } from "rxjs";
 
 export type Callable<T> = (arg: unknown) => T | Promise<T>;
 
@@ -153,3 +157,35 @@ export function createSocketFn<I, O>(
 ): () => ((i: I) => Promise<O>) | Record<string, (i: I) => Promise<O>> {
   return fn as any;
 }
+
+const pipeServer = <O>(
+  input: Observable<WsMessage<WsMessageUp>>
+): Observable<WsMessage<WsMessageDown<O>>> => {
+  const disposal = input.pipe(
+    filter(
+      (msg): msg is WsMessage<WsMessageUpDispose> => msg.type === "dispose"
+    )
+  );
+
+  const something = input.pipe(
+    filter((msg): msg is WsMessage<WsMessageUpCreate> => msg.type === "create"),
+    mergeMap(async (msg) => {
+      const [filepath, functionName] = msg.name.split("#");
+      // @ts-expect-error
+      const module = await getManifest(import.meta.env.ROUTER_NAME).chunks[
+        filepath
+      ].import();
+      const endpoint = module[functionName] as (arg: any) => O;
+      return { endpoint, msg };
+    }),
+    mergeMap(({ endpoint, msg }) =>
+      observableRoot(msg.input, endpoint).pipe(
+        map((res) => ({ res, msg })),
+        takeUntil(disposal.pipe(filter((d) => d.id === msg.id)))
+      )
+    ),
+    map(({ res, msg }) => {})
+  );
+
+  return {} as any;
+};
